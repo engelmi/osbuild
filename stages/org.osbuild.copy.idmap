@@ -1,0 +1,45 @@
+#!/usr/bin/python3
+import os
+import uuid
+import subprocess
+import sys
+
+import osbuild.api
+from osbuild.util import parsing
+
+
+def main(args, options):
+    items = options["paths"]
+
+    for path in items:
+        # -o X-mount.idmap=b:1337:0:1 --bind /tmp/idmap-sample/initial/ /mnt/idmap-sample/
+        temp_mount_dir_target = parsing.parse_location(f"tree:///tmp/{uuid.uuid1()}", args)
+        try:
+            os.mkdir(temp_mount_dir_target)
+        except Exception as ex:
+            print(ex)
+            raise ex
+
+        mapping = path["idmap"]
+        src = parsing.parse_location(path["from"], args)
+        dst = parsing.parse_location(path["to"], args)
+        remove_destination = path.get("remove_destination", False)
+
+        subprocess.run([
+            "/usr/bin/mount", "-o", f"X-mount.idmap=b:{mapping}:{os.getuid()}:1", "--bind", temp_mount_dir_target, dst
+        ], check=True)
+
+        print(f"copying '{src}' -> '{dst}'")
+
+        cmd = ["cp", "-R", "--reflink=auto"]
+        if remove_destination:
+            cmd.append("--remove-destination")
+        subprocess.run(cmd + [src, temp_mount_dir_target], check=True)
+
+    return 0
+
+
+if __name__ == '__main__':
+    _args = osbuild.api.arguments()
+    r = main(_args, _args["options"])
+    sys.exit(r)
